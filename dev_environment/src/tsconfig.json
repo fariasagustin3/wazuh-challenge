@@ -1,0 +1,16 @@
+{
+  "extends": "./src/tsconfig.json",
+  "compilerOptions": {
+    "skipLibCheck": true,
+    "noImplicitAny": false,
+    "strict": false,
+    "baseUrl": ".",
+    "paths": {
+      "../../../src/*": ["src/*"],
+      "@elastic/eui": ["node_modules/@elastic/eui"],
+      "@osd/*": ["node_modules/@osd/*"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "target"]
+}

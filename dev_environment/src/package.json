@@ -1,0 +1,11 @@
+{
+  "name": "custom-plugin-opensearch-dashboards",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "yarn plugin-helpers build",
+    "plugin-helpers": "node ../../scripts/plugin_helpers",
+    "osd": "node ../../scripts/osd",
+    "test": "node test/jest"
+  }
+}

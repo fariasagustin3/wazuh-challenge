@@ -1,0 +1,53 @@
+version: "2.2"
+
+services:
+  # OpenSearch instance
+  os1:
+    image: opensearchproject/opensearch:2.16.0
+    hostname: os1
+    environment:
+      - cluster.name=os-dev-cluster
+      - node.name=os1
+      - discovery.seed_hosts=os1
+      - cluster.initial_master_nodes=os1
+      # along with the memlock settings below, disables swapping
+      - bootstrap.memory_lock=true
+      # minimum and maximum Java heap size, recommend setting both to 50% of system RAM
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      - "OPENSEARCH_INITIAL_ADMIN_PASSWORD=Wazuh-1234"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        # maximum number of open files for the OpenSearch user, set to at least
+        # 65536 on modern systems
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -v -k -u admin:Wazuh-1234 https://os1:9200 2>&1 | grep -q '200 OK'"
+        ]
+      interval: 1s
+      timeout: 5s
+      retries: 300
+
+  # OpenSearch Dashboards (development mode)
+  osd:
+    depends_on:
+      os1:
+        condition: service_healthy
+    image: quay.io/wazuh/osd-dev:2.16.0
+    hostname: osd
+    user: "1000:1000"
+    ports:
+      # map the Docker host port 5601 to the container port 5601
+      - 5601:5601
+    entrypoint: [ "tail", "-f", "/dev/null" ]
+    volumes:
+      # Mount the src/ directory as a plugin
+      - ./src:/home/node/kbn/plugins/custom_plugin
+      # Mount the OpenSearch Dashboards configuration file to the container
+      - ./config/opensearch_dashboards.yml:/home/node/kbn/config/opensearch_dashboards.yml
