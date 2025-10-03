@@ -81,7 +81,7 @@ export function defineRoutes(router: IRouter) {
     }
   );
 
-  // obtener todas las tareas
+  // obtener todas las tareas con búsqueda por texto
   router.get(
     {
       path: '/api/custom_plugin/todos',
@@ -89,7 +89,10 @@ export function defineRoutes(router: IRouter) {
         query: schema.object({
           page: schema.maybe(schema.number({ min: 1 })),
           limit: schema.maybe(schema.number({ min: 1, max: 100 })),
-          status: schema.maybe(schema.oneOf([schema.literal('planned'), schema.literal('completed')])),
+          status: schema.maybe(
+            schema.oneOf([schema.literal('planned'), schema.literal('completed')])
+          ),
+          search: schema.maybe(schema.string({ minLength: 1 })),
         }),
       },
     },
@@ -98,6 +101,7 @@ export function defineRoutes(router: IRouter) {
         const page = request.query.page || 1;
         const limit = request.query.limit || 10;
         const status = request.query.status;
+        const search = request.query.search;
 
         // calcular el offset para la paginación
         const from = (page - 1) * limit;
@@ -131,18 +135,42 @@ export function defineRoutes(router: IRouter) {
           size: limit,
         };
 
-        // Agregar filtro por status si se proporciona
-        if (status) {
-          searchBody.query = {
-            term: {
-              status: status,
+        // Construir la query principal
+        let mainQuery: any = {};
+
+        // Si hay búsqueda por texto, crear query de texto
+        if (search) {
+          mainQuery = {
+            multi_match: {
+              query: search,
+              fields: ['title^2', 'description'], // title tiene más peso (^2)
+              type: 'best_fields',
+              fuzziness: 'AUTO',
             },
           };
         } else {
-          // Si no hay filtro, traer todos los documentos
-          searchBody.query = {
+          // Si no hay búsqueda, traer todos los documentos
+          mainQuery = {
             match_all: {},
           };
+        }
+
+        // Si hay filtro por status, combinar con la query principal
+        if (status) {
+          searchBody.query = {
+            bool: {
+              must: [mainQuery],
+              filter: [
+                {
+                  term: {
+                    status: status,
+                  },
+                },
+              ],
+            },
+          };
+        } else {
+          searchBody.query = mainQuery;
         }
 
         // Ejecutar la búsqueda
@@ -168,10 +196,10 @@ export function defineRoutes(router: IRouter) {
               total: totalHits,
               totalPages,
             },
+            search: search ? { query: search, results: totalHits } : null,
           },
         });
       } catch (error: any) {
-        console.log(error);
         return response.internalError({
           body: {
             message: 'Failed to get todos',
@@ -199,12 +227,12 @@ export function defineRoutes(router: IRouter) {
           index: INDEX_NAME,
         });
 
-        if(!indexExists.body) {
+        if (!indexExists.body) {
           return response.notFound({
             body: {
-              message: 'TO-DO not found'
-            }
-          })
+              message: 'TO-DO not found',
+            },
+          });
         }
 
         // buscar el documento por ID
@@ -214,38 +242,37 @@ export function defineRoutes(router: IRouter) {
         });
 
         // si el documento existe, retornarlo
-        if(getResponse.body.found) {
+        if (getResponse.body.found) {
           const todo: Todo = getResponse.body._source;
 
           return response.ok({
             body: {
               success: true,
-              body: todo
-            }
-          })
+              body: todo,
+            },
+          });
         } else {
           return response.notFound({
             body: {
-              message: 'TO-DO not found'
-            }
+              message: 'TO-DO not found',
+            },
           });
         }
-
       } catch (error: any) {
         console.log(error);
-        if(error.statusCode === 404) {
+        if (error.statusCode === 404) {
           return response.notFound({
             body: {
-              message: 'TO-DO not found.'
-            }
+              message: 'TO-DO not found.',
+            },
           });
         }
 
         return response.internalError({
           body: {
-            message: 'Failed to get TO-DO'
-          }
-        })
+            message: 'Failed to get TO-DO',
+          },
+        });
       }
     }
   ); // end get
@@ -256,12 +283,12 @@ export function defineRoutes(router: IRouter) {
       path: '/api/custom_plugin/todos/{id}/status',
       validate: {
         params: schema.object({
-          id: schema.string()
+          id: schema.string(),
         }),
         body: schema.object({
-          status: schema.oneOf([schema.literal('planned'), schema.literal('completed')])
-        })
-      }
+          status: schema.oneOf([schema.literal('planned'), schema.literal('completed')]),
+        }),
+      },
     },
     async (context, request, response) => {
       try {
@@ -298,9 +325,9 @@ export function defineRoutes(router: IRouter) {
           id: id,
           body: {
             doc: {
-              status: status
-            }
-          }
+              status: status,
+            },
+          },
         });
 
         // obtener el doc actualizado para retornarlo
@@ -343,8 +370,8 @@ export function defineRoutes(router: IRouter) {
       validate: {
         params: schema.object({
           id: schema.string(),
-        })
-      }
+        }),
+      },
     },
     async (context, request, response) => {
       try {
@@ -374,7 +401,6 @@ export function defineRoutes(router: IRouter) {
             deletedId: id,
           },
         });
-
       } catch (error: any) {
         console.log(error);
         if (error.statusCode === 404) {
@@ -392,6 +418,5 @@ export function defineRoutes(router: IRouter) {
         });
       }
     }
-  )
-
+  );
 }
