@@ -1,5 +1,5 @@
-import { defineRoutes } from ".";
-import { IRouter } from "../../../../src/core/server";
+import { defineRoutes } from '.';
+import { IRouter } from '../../../../src/core/server';
 
 const createMockContext = () => ({
   core: {
@@ -47,7 +47,7 @@ describe('Todo API Tests', () => {
     mockContext = createMockContext();
     mockResponse = createMockResponse();
     mockClient = mockContext.core.opensearch.client.asCurrentUser;
-    
+
     const router: IRouter = {
       get: jest.fn((path, handler) => {
         if (path.path === '/api/custom_plugin/todos') {
@@ -72,18 +72,17 @@ describe('Todo API Tests', () => {
         }
       }),
     } as any;
-    
+
     defineRoutes(router);
     jest.clearAllMocks();
     mockResponse = createMockResponse();
   });
 
-  // ===== POST /api/custom_plugin/todos =====
   describe('POST /api/custom_plugin/todos', () => {
     test('should create todo successfully with all fields', async () => {
       const todoData = { title: 'Test todo', description: 'Test description' };
       const mockRequest = createMockRequest(todoData);
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.create.mockResolvedValue({ body: { result: 'created' } });
 
@@ -114,7 +113,7 @@ describe('Todo API Tests', () => {
     test('should create todo without description', async () => {
       const todoData = { title: 'Test todo' };
       const mockRequest = createMockRequest(todoData);
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.create.mockResolvedValue({ body: { result: 'created' } });
 
@@ -134,7 +133,7 @@ describe('Todo API Tests', () => {
     test('should create index if not exists', async () => {
       const todoData = { title: 'Test todo' };
       const mockRequest = createMockRequest(todoData);
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: false });
       mockClient.indices.create.mockResolvedValue({ body: { acknowledged: true } });
       mockClient.create.mockResolvedValue({ body: { result: 'created' } });
@@ -149,7 +148,7 @@ describe('Todo API Tests', () => {
     test('should handle error when creating index', async () => {
       const todoData = { title: 'Test todo' };
       const mockRequest = createMockRequest(todoData);
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: false });
       mockClient.indices.create.mockRejectedValue(new Error('Index creation failed'));
 
@@ -163,7 +162,7 @@ describe('Todo API Tests', () => {
     test('should handle error when creating document', async () => {
       const todoData = { title: 'Test todo' };
       const mockRequest = createMockRequest(todoData);
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.create.mockRejectedValue(new Error('OpenSearch error'));
 
@@ -175,21 +174,28 @@ describe('Todo API Tests', () => {
     });
   });
 
-  // ===== GET /api/custom_plugin/todos =====
   describe('GET /api/custom_plugin/todos', () => {
-    test('should return todos with default pagination', async () => {
+    test('should return todos with default pagination and stats', async () => {
       const mockRequest = createMockRequest(null, null, {});
       const mockTodos = [
         { id: '1', title: 'Todo 1', status: 'planned' },
         { id: '2', title: 'Todo 2', status: 'completed' },
       ];
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.search.mockResolvedValue({
         body: {
           hits: {
             total: { value: 2 },
-            hits: mockTodos.map(todo => ({ _source: todo })),
+            hits: mockTodos.map((todo) => ({ _source: todo })),
+          },
+          aggregations: {
+            status_count: {
+              buckets: [
+                { key: 'planned', doc_count: 1 },
+                { key: 'completed', doc_count: 1 },
+              ],
+            },
           },
         },
       });
@@ -203,6 +209,14 @@ describe('Todo API Tests', () => {
           size: 10,
           query: { match_all: {} },
           sort: [{ createdAt: { order: 'desc' } }],
+          aggs: {
+            status_count: {
+              terms: {
+                field: 'status.keyword',
+                size: 10,
+              },
+            },
+          },
         }),
       });
       expect(mockResponse.ok).toHaveBeenCalledWith({
@@ -216,19 +230,34 @@ describe('Todo API Tests', () => {
             totalPages: 1,
           },
           search: null,
+          stats: {
+            total: 2,
+            completed: 1,
+            planned: 1,
+            completedPercentage: 50,
+            plannedPercentage: 50,
+          },
         },
       });
     });
 
     test('should return todos with custom pagination', async () => {
       const mockRequest = createMockRequest(null, null, { page: 2, limit: 5 });
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.search.mockResolvedValue({
         body: {
           hits: {
             total: { value: 10 },
             hits: [],
+          },
+          aggregations: {
+            status_count: {
+              buckets: [
+                { key: 'planned', doc_count: 6 },
+                { key: 'completed', doc_count: 4 },
+              ],
+            },
           },
         },
       });
@@ -250,19 +279,34 @@ describe('Todo API Tests', () => {
             total: 10,
             totalPages: 2,
           },
+          stats: {
+            total: 10,
+            completed: 4,
+            planned: 6,
+            completedPercentage: 40,
+            plannedPercentage: 60,
+          },
         }),
       });
     });
 
     test('should filter by status', async () => {
       const mockRequest = createMockRequest(null, null, { status: 'completed' });
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.search.mockResolvedValue({
         body: {
           hits: {
             total: { value: 1 },
             hits: [{ _source: { id: '1', status: 'completed' } }],
+          },
+          aggregations: {
+            status_count: {
+              buckets: [
+                { key: 'completed', doc_count: 5 },
+                { key: 'planned', doc_count: 3 },
+              ],
+            },
           },
         },
       });
@@ -284,13 +328,18 @@ describe('Todo API Tests', () => {
 
     test('should search by text', async () => {
       const mockRequest = createMockRequest(null, null, { search: 'PCI DSS' });
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.search.mockResolvedValue({
         body: {
           hits: {
             total: { value: 1 },
             hits: [{ _source: { id: '1', title: 'PCI DSS Audit' } }],
+          },
+          aggregations: {
+            status_count: {
+              buckets: [{ key: 'planned', doc_count: 1 }],
+            },
           },
         },
       });
@@ -319,13 +368,21 @@ describe('Todo API Tests', () => {
 
     test('should combine search and status filter', async () => {
       const mockRequest = createMockRequest(null, null, { search: 'audit', status: 'planned' });
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.search.mockResolvedValue({
         body: {
           hits: {
             total: { value: 1 },
             hits: [{ _source: { id: '1', title: 'Security Audit', status: 'planned' } }],
+          },
+          aggregations: {
+            status_count: {
+              buckets: [
+                { key: 'planned', doc_count: 2 },
+                { key: 'completed', doc_count: 1 },
+              ],
+            },
           },
         },
       });
@@ -337,14 +394,16 @@ describe('Todo API Tests', () => {
         body: expect.objectContaining({
           query: {
             bool: {
-              must: [{
-                multi_match: {
-                  query: 'audit',
-                  fields: ['title^2', 'description'],
-                  type: 'best_fields',
-                  fuzziness: 'AUTO',
+              must: [
+                {
+                  multi_match: {
+                    query: 'audit',
+                    fields: ['title^2', 'description'],
+                    type: 'best_fields',
+                    fuzziness: 'AUTO',
+                  },
                 },
-              }],
+              ],
               filter: [{ term: { status: 'planned' } }],
             },
           },
@@ -354,7 +413,7 @@ describe('Todo API Tests', () => {
 
     test('should return empty array when index not exists', async () => {
       const mockRequest = createMockRequest(null, null, {});
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: false });
 
       await routeHandlers.getTodos(mockContext, mockRequest, mockResponse);
@@ -371,19 +430,31 @@ describe('Todo API Tests', () => {
             total: 0,
             totalPages: 0,
           },
+          stats: {
+            total: 0,
+            completed: 0,
+            planned: 0,
+            completedPercentage: 0,
+            plannedPercentage: 0,
+          },
         },
       });
     });
 
     test('should return empty array when index exists but has no documents', async () => {
       const mockRequest = createMockRequest(null, null, {});
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.search.mockResolvedValue({
         body: {
           hits: {
             total: { value: 0 },
             hits: [],
+          },
+          aggregations: {
+            status_count: {
+              buckets: [],
+            },
           },
         },
       });
@@ -401,13 +472,20 @@ describe('Todo API Tests', () => {
             totalPages: 0,
           },
           search: null,
+          stats: {
+            total: 0,
+            completed: 0,
+            planned: 0,
+            completedPercentage: 0,
+            plannedPercentage: 0,
+          },
         },
       });
     });
 
     test('should handle search errors', async () => {
       const mockRequest = createMockRequest(null, null, {});
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.search.mockRejectedValue(new Error('Search failed'));
 
@@ -419,12 +497,11 @@ describe('Todo API Tests', () => {
     });
   });
 
-  // ===== GET /api/custom_plugin/todos/{id}/todo =====
   describe('GET /api/custom_plugin/todos/{id}/todo', () => {
     test('should return specific todo', async () => {
       const mockRequest = createMockRequest(null, { id: 'test-id' });
       const mockTodo = { id: 'test-id', title: 'Test todo', status: 'planned' };
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.get.mockResolvedValue({
         body: {
@@ -449,7 +526,7 @@ describe('Todo API Tests', () => {
 
     test('should return 404 when index not exists', async () => {
       const mockRequest = createMockRequest(null, { id: 'test-id' });
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: false });
 
       await routeHandlers.getTodo(mockContext, mockRequest, mockResponse);
@@ -462,7 +539,7 @@ describe('Todo API Tests', () => {
 
     test('should return 404 for non-existent todo', async () => {
       const mockRequest = createMockRequest(null, { id: 'non-existent' });
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.get.mockResolvedValue({
         body: {
@@ -479,7 +556,7 @@ describe('Todo API Tests', () => {
 
     test('should handle 404 error from OpenSearch', async () => {
       const mockRequest = createMockRequest(null, { id: 'test-id' });
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.get.mockRejectedValue({ statusCode: 404 });
 
@@ -492,7 +569,7 @@ describe('Todo API Tests', () => {
 
     test('should handle generic errors', async () => {
       const mockRequest = createMockRequest(null, { id: 'test-id' });
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.get.mockRejectedValue(new Error('OpenSearch error'));
 
@@ -504,12 +581,11 @@ describe('Todo API Tests', () => {
     });
   });
 
-  // ===== PATCH /api/custom_plugin/todos/{id}/status =====
   describe('PATCH /api/custom_plugin/todos/{id}/status', () => {
     test('should update status to completed successfully', async () => {
       const mockRequest = createMockRequest({ status: 'completed' }, { id: 'test-id' });
       const updatedTodo = { id: 'test-id', title: 'Test', status: 'completed' };
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.exists.mockResolvedValue({ body: true });
       mockClient.update.mockResolvedValue({ body: { result: 'updated' } });
@@ -537,7 +613,7 @@ describe('Todo API Tests', () => {
     test('should update status to planned successfully', async () => {
       const mockRequest = createMockRequest({ status: 'planned' }, { id: 'test-id' });
       const updatedTodo = { id: 'test-id', title: 'Test', status: 'planned' };
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.exists.mockResolvedValue({ body: true });
       mockClient.update.mockResolvedValue({ body: { result: 'updated' } });
@@ -559,7 +635,7 @@ describe('Todo API Tests', () => {
 
     test('should return 404 when index not exists', async () => {
       const mockRequest = createMockRequest({ status: 'completed' }, { id: 'test-id' });
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: false });
 
       await routeHandlers.updateStatus(mockContext, mockRequest, mockResponse);
@@ -573,7 +649,7 @@ describe('Todo API Tests', () => {
 
     test('should return 404 when document not exists', async () => {
       const mockRequest = createMockRequest({ status: 'completed' }, { id: 'non-existent' });
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.exists.mockResolvedValue({ body: false });
 
@@ -587,7 +663,7 @@ describe('Todo API Tests', () => {
 
     test('should handle 404 error from update', async () => {
       const mockRequest = createMockRequest({ status: 'completed' }, { id: 'test-id' });
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.exists.mockResolvedValue({ body: true });
       mockClient.update.mockRejectedValue({ statusCode: 404 });
@@ -601,7 +677,7 @@ describe('Todo API Tests', () => {
 
     test('should handle generic update errors', async () => {
       const mockRequest = createMockRequest({ status: 'completed' }, { id: 'test-id' });
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.exists.mockResolvedValue({ body: true });
       mockClient.update.mockRejectedValue(new Error('Update failed'));
@@ -614,11 +690,10 @@ describe('Todo API Tests', () => {
     });
   });
 
-  // ===== DELETE /api/custom_plugin/todos/{id}/delete =====
   describe('DELETE /api/custom_plugin/todos/{id}/delete', () => {
     test('should delete todo successfully', async () => {
       const mockRequest = createMockRequest(null, { id: 'test-id' });
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.delete.mockResolvedValue({
         body: { result: 'deleted' },
@@ -641,7 +716,7 @@ describe('Todo API Tests', () => {
 
     test('should return 404 when index not exists', async () => {
       const mockRequest = createMockRequest(null, { id: 'test-id' });
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: false });
 
       await routeHandlers.deleteTodo(mockContext, mockRequest, mockResponse);
@@ -654,7 +729,7 @@ describe('Todo API Tests', () => {
 
     test('should return 404 for non-existent todo', async () => {
       const mockRequest = createMockRequest(null, { id: 'non-existent' });
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.delete.mockRejectedValue({ statusCode: 404 });
 
@@ -667,7 +742,7 @@ describe('Todo API Tests', () => {
 
     test('should handle generic delete errors', async () => {
       const mockRequest = createMockRequest(null, { id: 'test-id' });
-      
+
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.delete.mockRejectedValue(new Error('Delete failed'));
 

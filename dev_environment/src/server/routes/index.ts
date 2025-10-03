@@ -1,11 +1,11 @@
 import { schema } from '@osd/config-schema';
 import { IRouter } from '../../../../src/core/server';
 import { Todo } from '../../common/types';
-import { request } from 'http';
 
 const INDEX_NAME = 'todos';
 
 export function defineRoutes(router: IRouter) {
+  // Example route
   router.get(
     {
       path: '/api/custom_plugin/example',
@@ -20,7 +20,7 @@ export function defineRoutes(router: IRouter) {
     }
   );
 
-  // crear una tarea
+  // Create TODO
   router.post(
     {
       path: '/api/custom_plugin/todos',
@@ -34,7 +34,6 @@ export function defineRoutes(router: IRouter) {
     async (context, request, response) => {
       try {
         const { title, description } = request.body;
-
         const id = require('crypto').randomUUID();
 
         const todo: Todo = {
@@ -45,7 +44,6 @@ export function defineRoutes(router: IRouter) {
           createdAt: new Date().toISOString(),
         };
 
-        // verificar existencia del índice y si no existe, crearlo
         const indexExists = await context.core.opensearch.client.asCurrentUser.indices.exists({
           index: INDEX_NAME,
         });
@@ -56,14 +54,12 @@ export function defineRoutes(router: IRouter) {
           });
         }
 
-        // guardar el registro en OpenSearch
         await context.core.opensearch.client.asCurrentUser.create({
           index: INDEX_NAME,
           id: id,
           body: todo,
         });
 
-        // devolver una respuesta en caso de ser satisfactoria
         return response.ok({
           body: {
             success: true,
@@ -81,7 +77,7 @@ export function defineRoutes(router: IRouter) {
     }
   );
 
-  // obtener todas las tareas con búsqueda por texto
+  // Get all TODOs with search, filters, and stats
   router.get(
     {
       path: '/api/custom_plugin/todos',
@@ -102,16 +98,12 @@ export function defineRoutes(router: IRouter) {
         const limit = request.query.limit || 10;
         const status = request.query.status;
         const search = request.query.search;
-
-        // calcular el offset para la paginación
         const from = (page - 1) * limit;
 
-        // verificar si el índice existe
         const indexExists = await context.core.opensearch.client.asCurrentUser.indices.exists({
           index: INDEX_NAME,
         });
 
-        // Si el índice no existe, retornar array vacío
         if (!indexExists.body) {
           return response.ok({
             body: {
@@ -123,39 +115,49 @@ export function defineRoutes(router: IRouter) {
                 total: 0,
                 totalPages: 0,
               },
+              stats: {
+                total: 0,
+                completed: 0,
+                planned: 0,
+                completedPercentage: 0,
+                plannedPercentage: 0,
+              },
             },
           });
         }
 
-        // Construir la consulta de búsqueda
         let searchBody: any = {
           query: {},
           sort: [{ createdAt: { order: 'desc' } }],
           from,
           size: limit,
+          aggs: {
+            status_count: {
+              terms: {
+                field: 'status.keyword',
+                size: 10,
+              },
+            },
+          },
         };
 
-        // Construir la query principal
         let mainQuery: any = {};
 
-        // Si hay búsqueda por texto, crear query de texto
         if (search) {
           mainQuery = {
             multi_match: {
               query: search,
-              fields: ['title^2', 'description'], // title tiene más peso (^2)
+              fields: ['title^2', 'description'],
               type: 'best_fields',
               fuzziness: 'AUTO',
             },
           };
         } else {
-          // Si no hay búsqueda, traer todos los documentos
           mainQuery = {
             match_all: {},
           };
         }
 
-        // Si hay filtro por status, combinar con la query principal
         if (status) {
           searchBody.query = {
             bool: {
@@ -173,18 +175,32 @@ export function defineRoutes(router: IRouter) {
           searchBody.query = mainQuery;
         }
 
-        // Ejecutar la búsqueda
         const searchResponse = await context.core.opensearch.client.asCurrentUser.search({
           index: INDEX_NAME,
           body: searchBody,
         });
 
-        // Obtener el total de documentos para la paginación
         const totalHits = searchResponse.body.hits.total.value;
         const totalPages = Math.ceil(totalHits / limit);
-
-        // Extraer los TO-DOs de la respuesta
         const todos: Todo[] = searchResponse.body.hits.hits.map((hit: any) => hit._source);
+
+        const statusBuckets = searchResponse.body.aggregations?.status_count?.buckets || [];
+        let completedCount = 0;
+        let plannedCount = 0;
+
+        statusBuckets.forEach((bucket: any) => {
+          if (bucket.key === 'completed') {
+            completedCount = bucket.doc_count;
+          } else if (bucket.key === 'planned') {
+            plannedCount = bucket.doc_count;
+          }
+        });
+
+        const total = completedCount + plannedCount;
+        const completedPercentage =
+          total > 0 ? Math.round((completedCount / total) * 100 * 10) / 10 : 0;
+        const plannedPercentage =
+          total > 0 ? Math.round((plannedCount / total) * 100 * 10) / 10 : 0;
 
         return response.ok({
           body: {
@@ -197,6 +213,13 @@ export function defineRoutes(router: IRouter) {
               totalPages,
             },
             search: search ? { query: search, results: totalHits } : null,
+            stats: {
+              total,
+              completed: completedCount,
+              planned: plannedCount,
+              completedPercentage,
+              plannedPercentage,
+            },
           },
         });
       } catch (error: any) {
@@ -207,9 +230,9 @@ export function defineRoutes(router: IRouter) {
         });
       }
     }
-  ); // end get
+  );
 
-  // obtener una sola tarea
+  // Get single TODO
   router.get(
     {
       path: '/api/custom_plugin/todos/{id}/todo',
@@ -235,13 +258,11 @@ export function defineRoutes(router: IRouter) {
           });
         }
 
-        // buscar el documento por ID
         const getResponse = await context.core.opensearch.client.asCurrentUser.get({
           index: INDEX_NAME,
           id: id,
         });
 
-        // si el documento existe, retornarlo
         if (getResponse.body.found) {
           const todo: Todo = getResponse.body._source;
 
@@ -275,9 +296,9 @@ export function defineRoutes(router: IRouter) {
         });
       }
     }
-  ); // end get
+  );
 
-  // ruta para actualizar de estado una tarea
+  // Update TODO status
   router.patch(
     {
       path: '/api/custom_plugin/todos/{id}/status',
@@ -330,7 +351,6 @@ export function defineRoutes(router: IRouter) {
           },
         });
 
-        // obtener el doc actualizado para retornarlo
         const getResponse = await context.core.opensearch.client.asCurrentUser.get({
           index: INDEX_NAME,
           id: id,
@@ -362,8 +382,9 @@ export function defineRoutes(router: IRouter) {
         });
       }
     }
-  ); // end patch
+  );
 
+  // Delete TODO
   router.delete(
     {
       path: '/api/custom_plugin/todos/{id}/delete',
