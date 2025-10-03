@@ -27,6 +27,8 @@ import { useTodos } from '../hooks/useTodos';
 import { TodoTable } from './TodoTable';
 import { CreateTodoFlyout } from './CreateTodoFlyout';
 import { SearchAndFilters } from './SearchAndFilters';
+import { StatsPanel } from './StatsPanel';
+import { StatusChart } from './StatusChart';
 
 interface CustomPluginAppDeps {
   basename: string;
@@ -48,6 +50,7 @@ export const CustomPluginApp = ({
     loading,
     pagination,
     filters,
+    stats,
     updateStatus,
     deleteTodo,
     updateFilters,
@@ -123,22 +126,31 @@ export const CustomPluginApp = ({
                 <EuiPageContentBody>
                   <EuiSpacer size="l" />
 
-                  <SearchAndFilters
-                    onSearchChange={handleSearchChange}
-                    onStatusFilterChange={handleStatusFilterChange}
-                    currentStatus={filters.status}
-                    totalResults={pagination.total}
-                  />
+                  <StatsPanel stats={stats} loading={loading} />
 
-                  <TodoTable
-                    todos={todos}
-                    loading={loading}
-                    pagination={pagination}
-                    onPageChange={handlePageChange}
-                    onUpdateStatus={updateStatus}
-                    onDelete={deleteTodo}
-                    onCreateClick={handleCreateClick}
-                  />
+                  <EuiFlexGroup gutterSize="l" responsive={false}>
+                    <EuiFlexItem grow={1} style={{ minWidth: '300px', maxWidth: '450px' }}>
+                      <StatusChart stats={stats} />
+                    </EuiFlexItem>
+                    <EuiFlexItem grow={2}>
+                      <SearchAndFilters
+                        onSearchChange={handleSearchChange}
+                        onStatusFilterChange={handleStatusFilterChange}
+                        currentStatus={filters.status}
+                        totalResults={pagination.total}
+                      />
+
+                      <TodoTable
+                        todos={todos}
+                        loading={loading}
+                        pagination={pagination}
+                        onPageChange={handlePageChange}
+                        onUpdateStatus={updateStatus}
+                        onDelete={deleteTodo}
+                        onCreateClick={handleCreateClick}
+                      />
+                    </EuiFlexItem>
+                  </EuiFlexGroup>
                 </EuiPageContentBody>
               </EuiPageContent>
             </EuiPageBody>

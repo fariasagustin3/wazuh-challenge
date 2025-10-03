@@ -37,6 +37,27 @@ const createMockResponse = () => ({
   internalError: jest.fn(),
 });
 
+const mockStatsResponse = {
+  body: {
+    aggregations: {
+      status_count: {
+        buckets: [
+          { key: 'planned', doc_count: 1 },
+          { key: 'completed', doc_count: 1 },
+        ],
+      },
+    },
+  },
+};
+
+const mockStats = {
+  total: 2,
+  completed: 1,
+  planned: 1,
+  completedPercentage: 50,
+  plannedPercentage: 50,
+};
+
 describe('Todo API Tests', () => {
   let mockContext: any;
   let mockResponse: any;
@@ -79,12 +100,13 @@ describe('Todo API Tests', () => {
   });
 
   describe('POST /api/custom_plugin/todos', () => {
-    test('should create todo successfully with all fields', async () => {
+    test('should create todo successfully with all fields and return stats', async () => {
       const todoData = { title: 'Test todo', description: 'Test description' };
       const mockRequest = createMockRequest(todoData);
 
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.create.mockResolvedValue({ body: { result: 'created' } });
+      mockClient.search.mockResolvedValue(mockStatsResponse);
 
       await routeHandlers.createTodo(mockContext, mockRequest, mockResponse);
 
@@ -97,6 +119,7 @@ describe('Todo API Tests', () => {
           status: 'planned',
           createdAt: expect.any(String),
         }),
+        refresh: true,
       });
       expect(mockResponse.ok).toHaveBeenCalledWith({
         body: {
@@ -106,16 +129,18 @@ describe('Todo API Tests', () => {
             description: 'Test description',
             status: 'planned',
           }),
+          stats: mockStats,
         },
       });
     });
 
-    test('should create todo without description', async () => {
+    test('should create todo without description and return stats', async () => {
       const todoData = { title: 'Test todo' };
       const mockRequest = createMockRequest(todoData);
 
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.create.mockResolvedValue({ body: { result: 'created' } });
+      mockClient.search.mockResolvedValue(mockStatsResponse);
 
       await routeHandlers.createTodo(mockContext, mockRequest, mockResponse);
 
@@ -126,23 +151,51 @@ describe('Todo API Tests', () => {
           title: 'Test todo',
           status: 'planned',
         }),
+        refresh: true,
       });
-      expect(mockResponse.ok).toHaveBeenCalled();
+      expect(mockResponse.ok).toHaveBeenCalledWith({
+        body: expect.objectContaining({
+          success: true,
+          stats: mockStats,
+        }),
+      });
     });
 
-    test('should create index if not exists', async () => {
+    test('should create index if not exists and return stats', async () => {
       const todoData = { title: 'Test todo' };
       const mockRequest = createMockRequest(todoData);
 
-      mockClient.indices.exists.mockResolvedValue({ body: false });
+      mockClient.indices.exists
+        .mockResolvedValueOnce({ body: false })
+        .mockResolvedValueOnce({ body: true });
       mockClient.indices.create.mockResolvedValue({ body: { acknowledged: true } });
       mockClient.create.mockResolvedValue({ body: { result: 'created' } });
+      mockClient.search.mockResolvedValue({
+        body: {
+          aggregations: {
+            status_count: {
+              buckets: [{ key: 'planned', doc_count: 1 }],
+            },
+          },
+        },
+      });
 
       await routeHandlers.createTodo(mockContext, mockRequest, mockResponse);
 
       expect(mockClient.indices.create).toHaveBeenCalledWith({ index: 'todos' });
       expect(mockClient.create).toHaveBeenCalled();
-      expect(mockResponse.ok).toHaveBeenCalled();
+      expect(mockResponse.ok).toHaveBeenCalledWith({
+        body: expect.objectContaining({
+          success: true,
+          stats: {
+            total: 1,
+            completed: 0,
+            planned: 1,
+            completedPercentage: 0,
+            plannedPercentage: 100,
+          },
+        }),
+      });
     });
 
     test('should handle error when creating index', async () => {
@@ -582,7 +635,7 @@ describe('Todo API Tests', () => {
   });
 
   describe('PATCH /api/custom_plugin/todos/{id}/status', () => {
-    test('should update status to completed successfully', async () => {
+    test('should update status to completed successfully and return stats', async () => {
       const mockRequest = createMockRequest({ status: 'completed' }, { id: 'test-id' });
       const updatedTodo = { id: 'test-id', title: 'Test', status: 'completed' };
 
@@ -592,6 +645,7 @@ describe('Todo API Tests', () => {
       mockClient.get.mockResolvedValue({
         body: { _source: updatedTodo },
       });
+      mockClient.search.mockResolvedValue(mockStatsResponse);
 
       await routeHandlers.updateStatus(mockContext, mockRequest, mockResponse);
 
@@ -601,16 +655,18 @@ describe('Todo API Tests', () => {
         body: {
           doc: { status: 'completed' },
         },
+        refresh: true,
       });
       expect(mockResponse.ok).toHaveBeenCalledWith({
         body: {
           success: true,
           data: updatedTodo,
+          stats: mockStats,
         },
       });
     });
 
-    test('should update status to planned successfully', async () => {
+    test('should update status to planned successfully and return stats', async () => {
       const mockRequest = createMockRequest({ status: 'planned' }, { id: 'test-id' });
       const updatedTodo = { id: 'test-id', title: 'Test', status: 'planned' };
 
@@ -620,6 +676,7 @@ describe('Todo API Tests', () => {
       mockClient.get.mockResolvedValue({
         body: { _source: updatedTodo },
       });
+      mockClient.search.mockResolvedValue(mockStatsResponse);
 
       await routeHandlers.updateStatus(mockContext, mockRequest, mockResponse);
 
@@ -629,8 +686,14 @@ describe('Todo API Tests', () => {
         body: {
           doc: { status: 'planned' },
         },
+        refresh: true,
       });
-      expect(mockResponse.ok).toHaveBeenCalled();
+      expect(mockResponse.ok).toHaveBeenCalledWith({
+        body: expect.objectContaining({
+          success: true,
+          stats: mockStats,
+        }),
+      });
     });
 
     test('should return 404 when index not exists', async () => {
@@ -691,25 +754,28 @@ describe('Todo API Tests', () => {
   });
 
   describe('DELETE /api/custom_plugin/todos/{id}/delete', () => {
-    test('should delete todo successfully', async () => {
+    test('should delete todo successfully and return stats', async () => {
       const mockRequest = createMockRequest(null, { id: 'test-id' });
 
       mockClient.indices.exists.mockResolvedValue({ body: true });
       mockClient.delete.mockResolvedValue({
         body: { result: 'deleted' },
       });
+      mockClient.search.mockResolvedValue(mockStatsResponse);
 
       await routeHandlers.deleteTodo(mockContext, mockRequest, mockResponse);
 
       expect(mockClient.delete).toHaveBeenCalledWith({
         index: 'todos',
         id: 'test-id',
+        refresh: true,
       });
       expect(mockResponse.ok).toHaveBeenCalledWith({
         body: {
           success: true,
           message: 'TO-DO deleted successfully',
           deletedId: 'test-id',
+          stats: mockStats,
         },
       });
     });

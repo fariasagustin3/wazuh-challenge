@@ -93,31 +93,28 @@ export const TodoTable: React.FC<TodoTableProps> = ({
     },
     {
       name: 'Actions',
-      width: '15%',
-      render: (todo: Todo) => (
-        <EuiFlexGroup gutterSize="s" responsive={false} wrap>
-          <EuiFlexItem grow={false}>
-            <EuiButton
-              size="s"
-              color={todo.status === 'planned' ? 'success' : 'text'}
-              onClick={() =>
-                onUpdateStatus(todo.id, todo.status === 'planned' ? 'completed' : 'planned')
-              }
-              iconType={todo.status === 'planned' ? 'check' : 'cross'}
-            >
-              {todo.status === 'planned' ? 'Complete' : 'Revert'}
-            </EuiButton>
-          </EuiFlexItem>
-          <EuiFlexItem grow={false}>
-            <EuiButtonIcon
-              color="danger"
-              iconType="trash"
-              onClick={() => handleDeleteClick(todo)}
-              aria-label="Delete"
-            />
-          </EuiFlexItem>
-        </EuiFlexGroup>
-      ),
+      width: '180px',
+      actions: [
+        {
+          name: 'Complete/Revert',
+          description: 'Change task status',
+          type: 'icon',
+          icon: (todo: Todo) => (todo.status === 'planned' ? 'check' : 'cross'),
+          color: (todo: Todo) => (todo.status === 'planned' ? 'success' : 'text'),
+          onClick: (todo: Todo) =>
+            onUpdateStatus(todo.id, todo.status === 'planned' ? 'completed' : 'planned'),
+          'data-test-subj': 'action-complete',
+        },
+        {
+          name: 'Delete',
+          description: 'Delete this task',
+          type: 'icon',
+          icon: 'trash',
+          color: 'danger',
+          onClick: (todo: Todo) => handleDeleteClick(todo),
+          'data-test-subj': 'action-delete',
+        },
+      ],
     },
   ];
 

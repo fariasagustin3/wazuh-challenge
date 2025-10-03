@@ -1,6 +1,12 @@
 import { useState, useEffect } from 'react';
 import { HttpStart, NotificationsStart } from '../../../../src/core/public';
-import { Todo, TodoFilters, PaginationInfo, CreateTodoRequest } from '../types/todo.types';
+import {
+  Todo,
+  TodoFilters,
+  PaginationInfo,
+  CreateTodoRequest,
+  TodoStats,
+} from '../types/todo.types';
 import * as todoService from '../services/todoService';
 
 interface UseTodosProps {
@@ -22,6 +28,13 @@ export const useTodos = ({ http, notifications }: UseTodosProps) => {
     page: 1,
     limit: 10,
   });
+  const [stats, setStats] = useState<TodoStats>({
+    total: 0,
+    completed: 0,
+    planned: 0,
+    completedPercentage: 0,
+    plannedPercentage: 0,
+  });
 
   const loadTodos = async () => {
     setLoading(true);
@@ -31,6 +44,7 @@ export const useTodos = ({ http, notifications }: UseTodosProps) => {
       const response = await todoService.getTodos(http, filters);
       setTodos(response.data);
       setPagination(response.pagination);
+      setStats(response.stats);
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to load TO-DOs';
       setError(errorMessage);
@@ -46,7 +60,7 @@ export const useTodos = ({ http, notifications }: UseTodosProps) => {
   const createTodo = async (todo: CreateTodoRequest): Promise<boolean> => {
     try {
       const response = await todoService.createTodo(http, todo);
-      
+
       if (response.success) {
         notifications.toasts.addSuccess({
           title: 'Success',
@@ -55,6 +69,8 @@ export const useTodos = ({ http, notifications }: UseTodosProps) => {
 
         setTodos((prevTodos) => [response.data, ...prevTodos]);
         setPagination((prev) => ({ ...prev, total: prev.total + 1 }));
+        setStats(response.stats);
+
         return true;
       }
 
@@ -75,12 +91,14 @@ export const useTodos = ({ http, notifications }: UseTodosProps) => {
     setTodos((prevTodos) => prevTodos.map((todo) => (todo.id === id ? { ...todo, status } : todo)));
 
     try {
-      const { success } = await todoService.updateTodoStatus(http, id, status);
-      if (success) {
+      const response = await todoService.updateTodoStatus(http, id, status);
+      if (response.success) {
         notifications.toasts.addSuccess({
           title: 'Success',
           text: `TO-DO marked as ${status === 'completed' ? 'completed' : 'planned'}`,
         });
+
+        setStats(response.stats);
 
         return true;
       }
@@ -104,12 +122,14 @@ export const useTodos = ({ http, notifications }: UseTodosProps) => {
 
     try {
       const response = await todoService.deleteTodo(http, id);
-      
+
       if (response.success) {
         notifications.toasts.addSuccess({
           title: 'Success',
           text: 'TO-DO deleted successfully',
         });
+
+        setStats(response.stats);
 
         return true;
       }
@@ -145,6 +165,7 @@ export const useTodos = ({ http, notifications }: UseTodosProps) => {
     error,
     pagination,
     filters,
+    stats,
     loadTodos,
     createTodo,
     updateStatus,

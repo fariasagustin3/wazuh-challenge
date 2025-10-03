@@ -4,6 +4,72 @@ import { Todo } from '../../common/types';
 
 const INDEX_NAME = 'todos';
 
+async function calculateStats(client: any): Promise<any> {
+  try {
+    const indexExists = await client.indices.exists({
+      index: INDEX_NAME,
+    });
+
+    if (!indexExists.body) {
+      return {
+        total: 0,
+        completed: 0,
+        planned: 0,
+        completedPercentage: 0,
+        plannedPercentage: 0,
+      };
+    }
+
+    const statsResponse = await client.search({
+      index: INDEX_NAME,
+      body: {
+        size: 0,
+        aggs: {
+          status_count: {
+            terms: {
+              field: 'status.keyword',
+              size: 10,
+            },
+          },
+        },
+      },
+    });
+
+    const statusBuckets = statsResponse.body.aggregations?.status_count?.buckets || [];
+    let completedCount = 0;
+    let plannedCount = 0;
+
+    statusBuckets.forEach((bucket: any) => {
+      if (bucket.key === 'completed') {
+        completedCount = bucket.doc_count;
+      } else if (bucket.key === 'planned') {
+        plannedCount = bucket.doc_count;
+      }
+    });
+
+    const total = completedCount + plannedCount;
+    const completedPercentage =
+      total > 0 ? Math.round((completedCount / total) * 100 * 10) / 10 : 0;
+    const plannedPercentage = total > 0 ? Math.round((plannedCount / total) * 100 * 10) / 10 : 0;
+
+    return {
+      total,
+      completed: completedCount,
+      planned: plannedCount,
+      completedPercentage,
+      plannedPercentage,
+    };
+  } catch (error) {
+    return {
+      total: 0,
+      completed: 0,
+      planned: 0,
+      completedPercentage: 0,
+      plannedPercentage: 0,
+    };
+  }
+}
+
 export function defineRoutes(router: IRouter) {
   // Example route
   router.get(
@@ -58,12 +124,16 @@ export function defineRoutes(router: IRouter) {
           index: INDEX_NAME,
           id: id,
           body: todo,
+          refresh: true,
         });
+
+        const stats = await calculateStats(context.core.opensearch.client.asCurrentUser);
 
         return response.ok({
           body: {
             success: true,
             data: todo,
+            stats,
           },
         });
       } catch (error: any) {
@@ -349,6 +419,7 @@ export function defineRoutes(router: IRouter) {
               status: status,
             },
           },
+          refresh: true,
         });
 
         const getResponse = await context.core.opensearch.client.asCurrentUser.get({
@@ -357,11 +428,13 @@ export function defineRoutes(router: IRouter) {
         });
 
         const updatedTodo: Todo = getResponse.body._source;
+        const stats = await calculateStats(context.core.opensearch.client.asCurrentUser);
 
         return response.ok({
           body: {
             success: true,
             data: updatedTodo,
+            stats,
           },
         });
       } catch (error: any) {
@@ -413,13 +486,17 @@ export function defineRoutes(router: IRouter) {
         await context.core.opensearch.client.asCurrentUser.delete({
           index: INDEX_NAME,
           id: id,
+          refresh: true,
         });
+
+        const stats = await calculateStats(context.core.opensearch.client.asCurrentUser);
 
         return response.ok({
           body: {
             success: true,
             message: 'TO-DO deleted successfully',
             deletedId: id,
+            stats,
           },
         });
       } catch (error: any) {
